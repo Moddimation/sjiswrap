@@ -139,6 +139,7 @@ fn main() -> Result<()> {
     hooks.insert("kernel32.dll!MapViewOfFile".into(), hook_MapViewOfFile as *const c_void);
     hooks.insert("kernel32.dll!MapViewOfFileEx".into(), hook_MapViewOfFileEx as *const c_void);
     hooks.insert("kernel32.dll!UnmapViewOfFile".into(), hook_UnmapViewOfFile as *const c_void);
+    hooks.insert("kernel32.dll!RtlCaptureContext".into(), hook_RtlCaptureContext as *const c_void);
     hooks.insert(
         "kernel32.dll!MultiByteToWideChar".into(),
         hook_MultiByteToWideChar as *const c_void,
@@ -178,6 +179,27 @@ impl GlobalState {
 }
 
 static mut GLOBAL_STATE: MaybeUninit<GlobalState> = MaybeUninit::uninit();
+
+/// `RtlCaptureContext` hook. Fills the CONTEXT struct with zeros (no-op).
+#[repr(C)]
+struct CONTEXT {
+    // Minimal placeholder. In practice, Rust doesn't need fields for zeroing.
+    _data: [u8; 716], // Typical size for x86_64 Windows CONTEXT struct, adjust if needed
+}
+
+extern "stdcall" fn hook_RtlCaptureContext(lpContext: *mut CONTEXT) {
+    if lpContext.is_null() {
+        fail!("sjiswrap: RtlCaptureContext() called with null pointer");
+    }
+
+    // Zero out the context struct
+    unsafe {
+        std::ptr::write_bytes(lpContext as *mut u8, 0, std::mem::size_of::<CONTEXT>());
+    }
+
+    // Optional debug
+    debug_println!("OVERRIDE RtlCaptureContext({:p}) zeroed", lpContext);
+}
 
 /// `GetCommandLineA` hook. Skips our own executable name and replaces the subprocess path with an absolute path.
 extern "stdcall" fn hook_GetCommandLineA() -> PCSTR {
